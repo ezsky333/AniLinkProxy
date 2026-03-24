@@ -32,9 +32,3 @@
 - `backend/internal/security`：签名算法相关
 - `backend/internal/utils`：通用工具
 - `frontend`：管理台前端
-
-## 适用场景
-
-- 需要统一管理多用户 API 密钥的个人/小团队服务
-- 需要对上游 API 增加安全保护与可观测能力
-- 需要一套可直接部署、可二次开发的代理网关基础工程
