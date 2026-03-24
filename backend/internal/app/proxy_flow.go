@@ -2,7 +2,9 @@ package app
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
@@ -26,7 +28,17 @@ func (s *APIServer) proxyRequest(w http.ResponseWriter, r *http.Request, canCach
 		writeJSON(w, http.StatusNotFound, "NOT_PROXY_ENDPOINT", "unsupported endpoint", nil)
 		return
 	}
-	user, code, msg := s.verifyClientSignature(r)
+	var body []byte
+	if r.Method == http.MethodPost {
+		var err error
+		body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, s.getRuntime().BodySizeLimitBytes))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, "BODY_TOO_LARGE", "request body exceeds limit", nil)
+			s.recordMetric("", endpoint, start, "VALIDATION_FAILED")
+			return
+		}
+	}
+	user, code, msg := s.verifyClientSignature(r, body)
 	if code != "" {
 		writeJSON(w, statusForCode(code), code, msg, nil)
 		s.recordMetric("", endpoint, start, code)
@@ -51,22 +63,12 @@ func (s *APIServer) proxyRequest(w http.ResponseWriter, r *http.Request, canCach
 		}
 		defer releaseMatch()
 	}
-	var body []byte
-	var err error
-	if r.Method == http.MethodPost {
-		body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, s.getRuntime().BodySizeLimitBytes))
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, "BODY_TOO_LARGE", "request body exceeds limit", nil)
+	if r.Method == http.MethodPost && (endpoint == "match" || endpoint == "match_batch") {
+		if code, msg := s.validateMatchPayload(endpoint, body); code != "" {
+			writeJSON(w, http.StatusBadRequest, code, msg, nil)
 			s.recordMetric(user.AppID, endpoint, start, "VALIDATION_FAILED")
+			s.createRiskEvent(user, "low", "payload_invalid", 1, msg)
 			return
-		}
-		if endpoint == "match" || endpoint == "match_batch" {
-			if code, msg := s.validateMatchPayload(endpoint, body); code != "" {
-				writeJSON(w, http.StatusBadRequest, code, msg, nil)
-				s.recordMetric(user.AppID, endpoint, start, "VALIDATION_FAILED")
-				s.createRiskEvent(user, "low", "payload_invalid", 1, msg)
-				return
-			}
 		}
 	}
 	cacheKey := ""
@@ -127,7 +129,9 @@ func (s *APIServer) proxyRequest(w http.ResponseWriter, r *http.Request, canCach
 	}
 }
 
-func (s *APIServer) verifyClientSignature(r *http.Request) (User, string, string) {
+// verifyClientSignature 校验客户端签名。postBody 为已读取的 POST 正文（GET 为 nil）；
+// POST 的重放键包含 body 的 SHA256，避免同一秒内多次不同匹配因签名相同被误判为重放。
+func (s *APIServer) verifyClientSignature(r *http.Request, postBody []byte) (User, string, string) {
 	appID, ts, sign := r.Header.Get("X-AppId"), r.Header.Get("X-Timestamp"), r.Header.Get("X-Signature")
 	if appID == "" || ts == "" || sign == "" {
 		return User{}, "AUTH_HEADER_MISSING", "missing signature headers"
@@ -166,6 +170,10 @@ func (s *APIServer) verifyClientSignature(r *http.Request) (User, string, string
 		return User{}, "AUTH_SIGNATURE_INVALID", "signature invalid"
 	}
 	replayKey := appID + ":" + strconv.FormatInt(tsInt, 10) + ":" + sign + ":" + r.URL.Path
+	if r.Method == http.MethodPost {
+		sum := sha256.Sum256(postBody)
+		replayKey += ":" + hex.EncodeToString(sum[:])
+	}
 	if s.isReplayAndRemember(replayKey, rt.ReplayCacheSec) {
 		s.createRiskEvent(user, "medium", "replay_attack", 1, "重复签名请求被拦截")
 		return User{}, "AUTH_REPLAY_DETECTED", "replay detected"
