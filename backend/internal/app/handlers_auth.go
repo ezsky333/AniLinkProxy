@@ -83,8 +83,14 @@ func (s *APIServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	appID := "app_" + utils.RandString(20)
 	secret := utils.RandString(48)
+	sealed, err := sealAppSecret(secret, s.cfg.SecretWrapKey)
+	if err != nil {
+		log.Printf("seal app secret (register): %v", err)
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "register failed", nil)
+		return
+	}
 	_, err = s.db.Exec(`INSERT INTO users(email, password_hash, app_id, app_secret, role, status, secret_shown, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,0,?,?)`, email, string(pwHash), appID, secret, roleUser, "active", now, now)
+		VALUES(?,?,?,?,?,?,0,?,?)`, email, string(pwHash), appID, sealed, roleUser, "active", now, now)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, "REGISTER_FAILED", "email may already exists", nil)
 		return
@@ -136,15 +142,20 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, "LOGIN_FAILED", "invalid credentials", nil)
 		return
 	}
+	if _, err := unsealAppSecret(u.AppSecret, s.cfg.SecretWrapKey); err != nil {
+		log.Printf("unseal app secret (login user_id=%d): %v", u.ID, err)
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "account data error", nil)
+		return
+	}
 	token, err := s.makeJWT(u)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "token failed", nil)
 		return
 	}
+	s.setAuthCookie(w, token)
 	_, _ = s.db.Exec(`UPDATE users SET last_login_at=?, updated_at=? WHERE id=?`,
 		time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), u.ID)
 	writeJSON(w, http.StatusOK, "OK", "", map[string]interface{}{
-		"token": token,
 		"user": map[string]interface{}{
 			"id":          u.ID,
 			"email":       u.Email,
@@ -154,4 +165,9 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 			"secretShown": u.SecretSeen,
 		},
 	})
+}
+
+func (s *APIServer) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.clearAuthCookie(w)
+	writeJSON(w, http.StatusOK, "OK", "logged out", nil)
 }

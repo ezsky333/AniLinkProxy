@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -181,6 +182,27 @@ func (rl *RateLimiter) Allow(key string, limit EndpointLimit) bool {
 	return false
 }
 
+func (s *APIServer) adminCORSAllowOrigin(origin, host string) (allow string, ok bool) {
+	if origin == "" {
+		return "", true
+	}
+	static := strings.TrimSpace(s.cfg.AdminAllowedOrigin)
+	if static != "" {
+		if origin == static {
+			return origin, true
+		}
+		return "", false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	if strings.EqualFold(u.Host, host) {
+		return origin, true
+	}
+	return "", false
+}
+
 func (s *APIServer) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-AppId, X-Timestamp, X-Signature")
@@ -188,15 +210,19 @@ func (s *APIServer) cors(next http.Handler) http.Handler {
 		origin := strings.TrimSpace(r.Header.Get("Origin"))
 		isAdminAPI := strings.HasPrefix(r.URL.Path, "/admin/api/")
 		if isAdminAPI {
-			allowed := strings.TrimSpace(s.cfg.AdminAllowedOrigin)
-			if allowed != "" {
-				if origin == allowed {
-					w.Header().Set("Access-Control-Allow-Origin", allowed)
-					w.Header().Set("Vary", "Origin")
-				} else if r.Method == http.MethodOptions {
+			allow, corsOK := s.adminCORSAllowOrigin(origin, r.Host)
+			if allow != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allow)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+			}
+			if !corsOK {
+				if r.Method == http.MethodOptions {
 					w.WriteHeader(http.StatusForbidden)
 					return
 				}
+				w.WriteHeader(http.StatusForbidden)
+				return
 			}
 		} else {
 			w.Header().Set("Access-Control-Allow-Origin", "*")

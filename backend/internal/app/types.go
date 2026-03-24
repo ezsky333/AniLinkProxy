@@ -36,6 +36,11 @@ type AppConfig struct {
 	TurnstileSecretKey string
 	AdminAllowedOrigin string
 	TrustedProxyCIDRs  string
+
+	// SecretWrapKey 为 32 字节 AES-GCM 密钥（建议 base64 置于 SECRET_WRAP_KEY）；为空则 AppSecret 明文落库（兼容旧数据）。
+	SecretWrapKey []byte
+	// AuthCookieSecure 为 true 时 Set-Cookie 带 Secure（HTTPS 生产环境应开启）。
+	AuthCookieSecure bool
 }
 
 type RuntimeConfig struct {

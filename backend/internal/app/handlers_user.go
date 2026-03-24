@@ -55,13 +55,19 @@ func (s *APIServer) handleRevealSecret(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, "SECRET_RATE_LIMITED", "too many reveal attempts", nil)
 		return
 	}
-	var secret string
-	if err := s.db.QueryRow(`SELECT app_secret FROM users WHERE id=?`, u.ID).Scan(&secret); err != nil {
+	var stored string
+	if err := s.db.QueryRow(`SELECT app_secret FROM users WHERE id=?`, u.ID).Scan(&stored); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
 		return
 	}
+	plain, err := unsealAppSecret(stored, s.cfg.SecretWrapKey)
+	if err != nil {
+		log.Printf("unseal app secret (reveal user_id=%d): %v", u.ID, err)
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "secret unavailable", nil)
+		return
+	}
 	_, _ = s.db.Exec(`UPDATE users SET secret_shown=1, updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339), u.ID)
-	writeJSON(w, http.StatusOK, "OK", "", map[string]string{"appSecret": secret})
+	writeJSON(w, http.StatusOK, "OK", "", map[string]string{"appSecret": plain})
 }
 
 func (s *APIServer) handleResetSecret(w http.ResponseWriter, r *http.Request) {
@@ -84,8 +90,14 @@ func (s *APIServer) handleResetSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	newSecret := utils.RandString(48)
-	_, err := s.db.Exec(`UPDATE users SET app_secret=?, secret_shown=1, updated_at=? WHERE id=?`,
-		newSecret, time.Now().UTC().Format(time.RFC3339), u.ID)
+	sealed, err := sealAppSecret(newSecret, s.cfg.SecretWrapKey)
+	if err != nil {
+		log.Printf("seal app secret (reset user_id=%d): %v", u.ID, err)
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "reset failed", nil)
+		return
+	}
+	_, err = s.db.Exec(`UPDATE users SET app_secret=?, secret_shown=1, updated_at=? WHERE id=?`,
+		sealed, time.Now().UTC().Format(time.RFC3339), u.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "reset failed", nil)
 		return

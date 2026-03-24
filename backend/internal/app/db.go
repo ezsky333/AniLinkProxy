@@ -89,7 +89,7 @@ func initSchema(db *sql.DB) error {
 	return nil
 }
 
-func ensureInitAdmin(db *sql.DB) error {
+func ensureInitAdmin(db *sql.DB, cfg AppConfig) error {
 	email := os.Getenv("INIT_ADMIN_EMAIL")
 	pass := os.Getenv("INIT_ADMIN_PASSWORD")
 	if email == "" || pass == "" {
@@ -110,7 +110,11 @@ func ensureInitAdmin(db *sql.DB) error {
 	}
 	appID := "adm_" + utils.RandString(24)
 	secret := utils.RandString(48)
+	sealed, err := sealAppSecret(secret, cfg.SecretWrapKey)
+	if err != nil {
+		return err
+	}
 	_, err = db.Exec(`INSERT INTO users(email, password_hash, app_id, app_secret, secret_shown, role, status, created_at, updated_at)
-		VALUES(?,?,?,?,1,'admin','active',?,?)`, strings.ToLower(email), string(pwHash), appID, secret, now, now)
+		VALUES(?,?,?,?,1,'admin','active',?,?)`, strings.ToLower(email), string(pwHash), appID, sealed, now, now)
 	return err
 }

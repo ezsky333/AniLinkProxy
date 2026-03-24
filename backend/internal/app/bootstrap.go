@@ -40,7 +40,7 @@ func Run() {
 		log.Fatalf("运行时配置加载失败: %v", err)
 	}
 
-	if err = ensureInitAdmin(db); err != nil {
+	if err = ensureInitAdmin(db, cfg); err != nil {
 		log.Fatalf("初始超管创建失败: %v", err)
 	}
 
@@ -66,6 +66,7 @@ func Run() {
 	go server.replayGCLoop()
 	go server.metricsWriterLoop()
 	go server.riskWriterLoop()
+	go server.emailTablesCleanupLoop()
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -99,6 +100,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 		admin.Post("/auth/email/send-register", server.handleSendRegisterCode)
 		admin.Post("/auth/register", server.handleRegister)
 		admin.Post("/auth/login", server.handleLogin)
+		admin.Post("/auth/logout", server.handleLogout)
 
 		admin.Group(func(protected chi.Router) {
 			protected.Use(server.authUserMiddleware)

@@ -20,14 +20,14 @@
 
 <script setup>
 import { useRouter } from "vue-router";
-import { authState, clearAuth } from "./auth";
+import { authState, clearAuthServer } from "./auth";
 
 const router = useRouter();
 const isAuthed = authState.isAuthed;
 const role = authState.role;
 
-function logout() {
-  clearAuth();
+async function logout() {
+  await clearAuthServer();
   router.push("/login");
 }
 </script>

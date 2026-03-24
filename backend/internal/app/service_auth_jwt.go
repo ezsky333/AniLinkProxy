@@ -10,6 +10,47 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	authCookieName      = "auth_token"
+	authCookieMaxAgeSec = 72 * 3600
+)
+
+func (s *APIServer) setAuthCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   authCookieMaxAgeSec,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.cfg.AuthCookieSecure,
+	})
+}
+
+func (s *APIServer) clearAuthCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     authCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.cfg.AuthCookieSecure,
+	})
+}
+
+func bearerOrCookieJWT(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	}
+	c, err := r.Cookie(authCookieName)
+	if err == nil && c.Value != "" {
+		return c.Value
+	}
+	return ""
+}
+
 // accountBannedForHTTP 与代理签名校验中的封禁逻辑一致：封禁期内或永久封禁则禁止 Web 会话访问。
 func accountBannedForHTTP(u User) bool {
 	if u.Status != "banned" {
@@ -31,7 +72,11 @@ func (s *APIServer) findUserByAppID(appID string) (User, error) {
 	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at
 		FROM users WHERE app_id=?`, appID).
 		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &u.CreatedAt)
+	if err != nil {
+		return u, err
+	}
 	u.SecretSeen = secretShown == 1
+	u.AppSecret, err = unsealAppSecret(u.AppSecret, s.cfg.SecretWrapKey)
 	return u, err
 }
 
@@ -69,7 +114,11 @@ func (s *APIServer) parseJWT(tokenStr string) (User, error) {
 	err = s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at
 		FROM users WHERE id=?`, claims.UserID).
 		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &u.CreatedAt)
+	if err != nil {
+		return u, err
+	}
 	u.SecretSeen = secretShown == 1
+	u.AppSecret, err = unsealAppSecret(u.AppSecret, s.cfg.SecretWrapKey)
 	return u, err
 }
 
@@ -79,12 +128,12 @@ const userCtxKey ctxKey = "user"
 
 func (s *APIServer) authUserMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			writeJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing bearer token", nil)
+		tok := bearerOrCookieJWT(r)
+		if tok == "" {
+			writeJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing credentials", nil)
 			return
 		}
-		u, err := s.parseJWT(strings.TrimPrefix(auth, "Bearer "))
+		u, err := s.parseJWT(tok)
 		if err != nil {
 			writeJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid token", nil)
 			return

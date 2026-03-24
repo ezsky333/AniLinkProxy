@@ -2,6 +2,7 @@ package app
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,17 @@ func loadConfig() (AppConfig, error) {
 		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
 		AdminAllowedOrigin: strings.TrimSpace(os.Getenv("ADMIN_ALLOWED_ORIGIN")),
 		TrustedProxyCIDRs:  strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS")),
+		AuthCookieSecure:   isTruthyEnv("AUTH_COOKIE_SECURE"),
+	}
+	if raw := strings.TrimSpace(os.Getenv("SECRET_WRAP_KEY")); raw != "" {
+		k, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return cfg, fmt.Errorf("SECRET_WRAP_KEY 须为 32 字节的 base64: %w", err)
+		}
+		if len(k) != 32 {
+			return cfg, fmt.Errorf("SECRET_WRAP_KEY 解码后须恰好 32 字节，当前 %d 字节", len(k))
+		}
+		cfg.SecretWrapKey = k
 	}
 	if cfg.UpstreamAppID == "" || cfg.UpstreamAppSecret == "" {
 		return cfg, errors.New("缺少 UPSTREAM_DANDAN_APP_ID / UPSTREAM_DANDAN_APP_SECRET")
@@ -42,6 +54,11 @@ func loadConfig() (AppConfig, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func isTruthyEnv(key string) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes"
 }
 
 func defaultRuntimeConfig() RuntimeConfig {
