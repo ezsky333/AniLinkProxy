@@ -28,7 +28,7 @@ func (s *APIServer) handleSendRegisterCode(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, "BAD_REQUEST", "invalid json", nil)
 		return
 	}
-	if err := s.verifyTurnstile(req.TurnstileToken, utils.ClientIP(r)); err != nil {
+	if err := s.verifyTurnstile(req.TurnstileToken, s.clientIP(r)); err != nil {
 		writeJSON(w, http.StatusBadRequest, "TURNSTILE_INVALID", err.Error(), nil)
 		return
 	}
@@ -37,7 +37,7 @@ func (s *APIServer) handleSendRegisterCode(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	ip := utils.ClientIP(r)
+	ip := s.clientIP(r)
 	keys := []string{
 		"register:email:" + email,
 		"register:ip:" + ip,
@@ -105,14 +105,21 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, "BAD_REQUEST", "invalid json", nil)
 		return
 	}
-	if err := s.verifyTurnstile(req.TurnstileToken, utils.ClientIP(r)); err != nil {
+	ip := s.clientIP(r)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !s.authRL.Allow("login:ip:"+ip, EndpointLimit{RPS: 0.2, Burst: 6}) ||
+		!s.authRL.Allow("login:email:"+email, EndpointLimit{RPS: 0.15, Burst: 4}) {
+		writeJSON(w, http.StatusTooManyRequests, "LOGIN_RATE_LIMITED", "too many login attempts", nil)
+		return
+	}
+	if err := s.verifyTurnstile(req.TurnstileToken, ip); err != nil {
 		writeJSON(w, http.StatusBadRequest, "TURNSTILE_INVALID", err.Error(), nil)
 		return
 	}
 	var u User
 	var secretShown int
 	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,created_at FROM users WHERE email=?`,
-		strings.ToLower(strings.TrimSpace(req.Email))).
+		email).
 		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.CreatedAt)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, "LOGIN_FAILED", "invalid credentials", nil)
@@ -124,6 +131,8 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
+		// 密码错误会额外计入一次惩罚限流，抬高连续爆破成本。
+		_ = s.authRL.Allow("login:penalty:ip:"+ip, EndpointLimit{RPS: 0.03, Burst: 1})
 		writeJSON(w, http.StatusUnauthorized, "LOGIN_FAILED", "invalid credentials", nil)
 		return
 	}
@@ -137,11 +146,11 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, "OK", "", map[string]interface{}{
 		"token": token,
 		"user": map[string]interface{}{
-			"id":         u.ID,
-			"email":      u.Email,
-			"appId":      u.AppID,
-			"role":       u.Role,
-			"status":     u.Status,
+			"id":          u.ID,
+			"email":       u.Email,
+			"appId":       u.AppID,
+			"role":        u.Role,
+			"status":      u.Status,
 			"secretShown": u.SecretSeen,
 		},
 	})

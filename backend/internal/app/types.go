@@ -1,7 +1,9 @@
 package app
 
 import (
+	"container/list"
 	"database/sql"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -32,6 +34,8 @@ type AppConfig struct {
 
 	TurnstileSiteKey   string
 	TurnstileSecretKey string
+	AdminAllowedOrigin string
+	TrustedProxyCIDRs  string
 }
 
 type RuntimeConfig struct {
@@ -41,7 +45,12 @@ type RuntimeConfig struct {
 	RateLimit             map[string]EndpointLimit `json:"rateLimit"`
 	MatchLockTimeoutSec   int                      `json:"matchLockTimeoutSec"`
 	BodySizeLimitBytes    int64                    `json:"bodySizeLimitBytes"`
+	UpstreamMaxBodyBytes  int64                    `json:"upstreamMaxBodyBytes"`
 	BatchMaxItems         int                      `json:"batchMaxItems"`
+	CacheMaxEntries       int                      `json:"cacheMaxEntries"`
+	CacheMaxBytes         int64                    `json:"cacheMaxBytes"`
+	CacheMaxItemBytes     int64                    `json:"cacheMaxItemBytes"`
+	ReplayCacheSec        int64                    `json:"replayCacheSec"`
 	AutoBanEnabled        bool                     `json:"autoBanEnabled"`
 	AutoBanMinutes        int                      `json:"autoBanMinutes"`
 }
@@ -66,18 +75,26 @@ type User struct {
 }
 
 type APIServer struct {
-	cfg        AppConfig
-	db         *sql.DB
-	httpClient *http.Client
+	cfg              AppConfig
+	db               *sql.DB
+	httpClient       *http.Client
+	trustedProxyNets []*net.IPNet
 
 	runtimeMu sync.RWMutex
 	runtime   RuntimeConfig
 
-	cache *MemoryCache
-	rl    *RateLimiter
+	cache  *MemoryCache
+	rl     *RateLimiter
+	authRL *RateLimiter
 
 	matchMu   sync.Mutex
 	matchLock map[string]time.Time
+
+	replayMu   sync.Mutex
+	replaySeen map[string]time.Time
+
+	metricCh chan metricEvent
+	riskCh   chan riskEvent
 }
 
 type bucket struct {
@@ -93,17 +110,43 @@ type RateLimiter struct {
 type cacheValue struct {
 	Value    []byte
 	ExpireAt time.Time
+	Size     int64
 }
 
 type MemoryCache struct {
-	mu   sync.RWMutex
-	data map[string]cacheValue
+	mu           sync.RWMutex
+	data         map[string]cacheValue
+	maxEntries   int
+	maxBytes     int64
+	maxItemBytes int64
+	currentBytes int64
+	order        *list.List
+	index        map[string]*list.Element
+}
+
+type cacheOrderEntry struct {
+	Key string
 }
 
 type jsonResp struct {
 	Code    string      `json:"code"`
 	Message string      `json:"message,omitempty"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+type metricEvent struct {
+	AppID      string
+	Endpoint   string
+	StatusCode string
+	LatencyMS  int64
+}
+
+type riskEvent struct {
+	User   User
+	Level  string
+	Rule   string
+	Metric float64
+	Detail string
 }
 
 type authClaims struct {

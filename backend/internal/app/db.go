@@ -40,6 +40,12 @@ func initSchema(db *sql.DB) error {
 			rate_key TEXT PRIMARY KEY,
 			last_sent_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS email_code_attempts (
+			rate_key TEXT PRIMARY KEY,
+			fail_count INTEGER NOT NULL DEFAULT 0,
+			lock_until TEXT,
+			updated_at TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS app_metrics_daily (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			app_id TEXT NOT NULL,
@@ -73,6 +79,7 @@ func initSchema(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_email_codes_email_purpose ON email_codes(email, purpose);`,
 		`CREATE INDEX IF NOT EXISTS idx_users_appid ON users(app_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_risk_events_user ON risk_events(user_id, created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_metrics_daily_date ON app_metrics_daily(date);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {

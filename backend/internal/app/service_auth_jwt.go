@@ -37,12 +37,18 @@ func (s *APIServer) makeJWT(u User) (string, error) {
 
 func (s *APIServer) parseJWT(tokenStr string) (User, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &authClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
 		return []byte(s.cfg.JWTSecret), nil
 	})
 	if err != nil || !token.Valid {
 		return User{}, errors.New("invalid token")
 	}
-	claims := token.Claims.(*authClaims)
+	claims, ok := token.Claims.(*authClaims)
+	if !ok {
+		return User{}, errors.New("invalid token claims")
+	}
 	var u User
 	var secretShown int
 	err = s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at
@@ -53,6 +59,7 @@ func (s *APIServer) parseJWT(tokenStr string) (User, error) {
 }
 
 type ctxKey string
+
 const userCtxKey ctxKey = "user"
 
 func (s *APIServer) authUserMiddleware(next http.Handler) http.Handler {

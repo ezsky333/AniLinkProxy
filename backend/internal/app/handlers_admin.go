@@ -93,8 +93,23 @@ func (s *APIServer) handleAdminUpdateConfig(w http.ResponseWriter, r *http.Reque
 	if cfg.BodySizeLimitBytes <= 0 {
 		cfg.BodySizeLimitBytes = 1024 * 1024
 	}
+	if cfg.UpstreamMaxBodyBytes <= 0 {
+		cfg.UpstreamMaxBodyBytes = 4 * 1024 * 1024
+	}
 	if cfg.BatchMaxItems <= 0 {
 		cfg.BatchMaxItems = 30
+	}
+	if cfg.CacheMaxEntries <= 0 {
+		cfg.CacheMaxEntries = 3000
+	}
+	if cfg.CacheMaxBytes <= 0 {
+		cfg.CacheMaxBytes = 128 * 1024 * 1024
+	}
+	if cfg.CacheMaxItemBytes <= 0 {
+		cfg.CacheMaxItemBytes = 256 * 1024
+	}
+	if cfg.ReplayCacheSec <= 0 {
+		cfg.ReplayCacheSec = 600
 	}
 	if cfg.MatchLockTimeoutSec <= 0 {
 		cfg.MatchLockTimeoutSec = 45
@@ -106,5 +121,6 @@ func (s *APIServer) handleAdminUpdateConfig(w http.ResponseWriter, r *http.Reque
 	s.runtimeMu.Lock()
 	s.runtime = cfg
 	s.runtimeMu.Unlock()
+	s.cache.Reconfigure(cfg.CacheMaxEntries, cfg.CacheMaxBytes, cfg.CacheMaxItemBytes)
 	writeJSON(w, http.StatusOK, "OK", "updated", cfg)
 }

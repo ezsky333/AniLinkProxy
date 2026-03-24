@@ -14,7 +14,7 @@ func writeJSON(w http.ResponseWriter, status int, code, message string, data int
 
 func statusForCode(code string) int {
 	switch code {
-	case "AUTH_HEADER_MISSING", "AUTH_INVALID_APP", "AUTH_SIGNATURE_INVALID", "AUTH_TIMESTAMP_INVALID", "AUTH_TIMESTAMP_EXPIRED":
+	case "AUTH_HEADER_MISSING", "AUTH_INVALID_APP", "AUTH_SIGNATURE_INVALID", "AUTH_TIMESTAMP_INVALID", "AUTH_TIMESTAMP_EXPIRED", "AUTH_REPLAY_DETECTED":
 		return http.StatusUnauthorized
 	case "BANNED":
 		return http.StatusForbidden

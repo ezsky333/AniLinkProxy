@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,7 +20,7 @@ func loadConfig() (AppConfig, error) {
 		Upstream:           getenv("UPSTREAM_BASE_URL", "https://api.dandanplay.net"),
 		UpstreamAppID:      os.Getenv("UPSTREAM_DANDAN_APP_ID"),
 		UpstreamAppSecret:  os.Getenv("UPSTREAM_DANDAN_APP_SECRET"),
-		JWTSecret:          getenv("JWT_SECRET", "change-this-in-production"),
+		JWTSecret:          os.Getenv("JWT_SECRET"),
 		SQLitePath:         getenv("SQLITE_PATH", "./data/proxy.db"),
 		SMTPHost:           os.Getenv("SMTP_HOST"),
 		SMTPPort:           smtpPort,
@@ -27,9 +29,14 @@ func loadConfig() (AppConfig, error) {
 		SMTPFrom:           os.Getenv("SMTP_FROM_ADDRESS"),
 		TurnstileSiteKey:   os.Getenv("TURNSTILE_SITE_KEY"),
 		TurnstileSecretKey: os.Getenv("TURNSTILE_SECRET_KEY"),
+		AdminAllowedOrigin: strings.TrimSpace(os.Getenv("ADMIN_ALLOWED_ORIGIN")),
+		TrustedProxyCIDRs:  strings.TrimSpace(os.Getenv("TRUSTED_PROXY_CIDRS")),
 	}
 	if cfg.UpstreamAppID == "" || cfg.UpstreamAppSecret == "" {
 		return cfg, errors.New("缺少 UPSTREAM_DANDAN_APP_ID / UPSTREAM_DANDAN_APP_SECRET")
+	}
+	if len(strings.TrimSpace(cfg.JWTSecret)) < 32 {
+		return cfg, fmt.Errorf("JWT_SECRET 过短，生产环境请使用至少 32 位随机字符串")
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.SQLitePath), 0o755); err != nil {
 		return cfg, err
@@ -55,11 +62,16 @@ func defaultRuntimeConfig() RuntimeConfig {
 			"match":       {RPS: 0.3, Burst: 1},
 			"match_batch": {RPS: 5, Burst: 5},
 		},
-		MatchLockTimeoutSec: 45,
-		BodySizeLimitBytes:  1024 * 1024,
-		BatchMaxItems:       30,
-		AutoBanEnabled:      true,
-		AutoBanMinutes:      30,
+		MatchLockTimeoutSec:  45,
+		BodySizeLimitBytes:   1024 * 1024,
+		UpstreamMaxBodyBytes: 4 * 1024 * 1024,
+		BatchMaxItems:        30,
+		CacheMaxEntries:      3000,
+		CacheMaxBytes:        128 * 1024 * 1024,
+		CacheMaxItemBytes:    256 * 1024,
+		ReplayCacheSec:       600,
+		AutoBanEnabled:       true,
+		AutoBanMinutes:       30,
 	}
 }
 
@@ -80,13 +92,51 @@ func loadRuntimeConfig(db *sql.DB) (RuntimeConfig, error) {
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 		return defaultRuntimeConfig(), nil
 	}
-	return cfg, nil
+	return normalizeRuntimeConfig(cfg), nil
 }
 
 func saveRuntimeConfig(db *sql.DB, cfg RuntimeConfig) error {
+	cfg = normalizeRuntimeConfig(cfg)
 	raw, _ := json.Marshal(cfg)
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`INSERT INTO system_config(k, v, updated_at) VALUES('runtime_config', ?, ?)
 		ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at`, string(raw), now)
 	return err
+}
+
+func normalizeRuntimeConfig(cfg RuntimeConfig) RuntimeConfig {
+	if cfg.TimestampToleranceSec <= 0 {
+		cfg.TimestampToleranceSec = 300
+	}
+	if cfg.BodySizeLimitBytes <= 0 {
+		cfg.BodySizeLimitBytes = 1024 * 1024
+	}
+	if cfg.UpstreamMaxBodyBytes <= 0 {
+		cfg.UpstreamMaxBodyBytes = 4 * 1024 * 1024
+	}
+	if cfg.BatchMaxItems <= 0 {
+		cfg.BatchMaxItems = 30
+	}
+	if cfg.MatchLockTimeoutSec <= 0 {
+		cfg.MatchLockTimeoutSec = 45
+	}
+	if cfg.CacheMaxEntries <= 0 {
+		cfg.CacheMaxEntries = 3000
+	}
+	if cfg.CacheMaxBytes <= 0 {
+		cfg.CacheMaxBytes = 128 * 1024 * 1024
+	}
+	if cfg.CacheMaxItemBytes <= 0 {
+		cfg.CacheMaxItemBytes = 256 * 1024
+	}
+	if cfg.ReplayCacheSec <= 0 {
+		cfg.ReplayCacheSec = 600
+	}
+	if cfg.CacheTTLMin == nil {
+		cfg.CacheTTLMin = defaultRuntimeConfig().CacheTTLMin
+	}
+	if cfg.RateLimit == nil {
+		cfg.RateLimit = defaultRuntimeConfig().RateLimit
+	}
+	return cfg
 }

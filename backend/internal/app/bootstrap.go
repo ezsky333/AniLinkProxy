@@ -46,25 +46,41 @@ func Run() {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		runtime:   runtimeCfg,
-		cache:     newMemoryCache(),
-		rl:        newRateLimiter(),
-		matchLock: map[string]time.Time{},
+		runtime:          runtimeCfg,
+		cache:            newMemoryCache(runtimeCfg.CacheMaxEntries, runtimeCfg.CacheMaxBytes, runtimeCfg.CacheMaxItemBytes),
+		rl:               newRateLimiter(),
+		authRL:           newRateLimiter(),
+		matchLock:        map[string]time.Time{},
+		replaySeen:       map[string]time.Time{},
+		metricCh:         make(chan metricEvent, 4096),
+		riskCh:           make(chan riskEvent, 2048),
+		trustedProxyNets: parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs),
 	}
 	// 启动后台维护协程：缓存过期清理 + match 锁兜底回收。
 	go server.cache.gcLoop()
 	go server.cleanupMatchLoop()
+	go server.replayGCLoop()
+	go server.metricsWriterLoop()
+	go server.riskWriterLoop()
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(server.cors)
 
 	registerRoutes(r, server)
 
 	log.Printf("proxy service listening on %s", cfg.ListenAddr)
-	if err = http.ListenAndServe(cfg.ListenAddr, r); err != nil {
+	srv := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB
+	}
+	if err = srv.ListenAndServe(); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
 }

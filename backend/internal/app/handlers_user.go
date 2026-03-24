@@ -13,18 +13,18 @@ import (
 func (s *APIServer) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	writeJSON(w, http.StatusOK, "OK", "", map[string]interface{}{
-		"id":         u.ID,
-		"email":      u.Email,
-		"appId":      u.AppID,
-		"role":       u.Role,
-		"status":     u.Status,
+		"id":          u.ID,
+		"email":       u.Email,
+		"appId":       u.AppID,
+		"role":        u.Role,
+		"status":      u.Status,
 		"secretShown": u.SecretSeen,
 	})
 }
 
 func (s *APIServer) handleSendResetCode(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
-	ip := utils.ClientIP(r)
+	ip := s.clientIP(r)
 	keys := []string{
 		"secret_reset:user:" + strconv.FormatInt(u.ID, 10),
 		"secret_reset:email:" + strings.ToLower(strings.TrimSpace(u.Email)),
@@ -48,6 +48,12 @@ func (s *APIServer) handleSendResetCode(w http.ResponseWriter, r *http.Request) 
 
 func (s *APIServer) handleRevealSecret(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
+	ip := s.clientIP(r)
+	if !s.authRL.Allow("secret:reveal:user:"+strconv.FormatInt(u.ID, 10), EndpointLimit{RPS: 0.05, Burst: 2}) ||
+		!s.authRL.Allow("secret:reveal:ip:"+ip, EndpointLimit{RPS: 0.1, Burst: 3}) {
+		writeJSON(w, http.StatusTooManyRequests, "SECRET_RATE_LIMITED", "too many reveal attempts", nil)
+		return
+	}
 	var secret string
 	if err := s.db.QueryRow(`SELECT app_secret FROM users WHERE id=?`, u.ID).Scan(&secret); err != nil {
 		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
@@ -59,6 +65,12 @@ func (s *APIServer) handleRevealSecret(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleResetSecret(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
+	ip := s.clientIP(r)
+	if !s.authRL.Allow("secret:reset:user:"+strconv.FormatInt(u.ID, 10), EndpointLimit{RPS: 0.03, Burst: 2}) ||
+		!s.authRL.Allow("secret:reset:ip:"+ip, EndpointLimit{RPS: 0.08, Burst: 3}) {
+		writeJSON(w, http.StatusTooManyRequests, "SECRET_RATE_LIMITED", "too many reset attempts", nil)
+		return
+	}
 	var req struct {
 		EmailCode string `json:"emailCode"`
 	}

@@ -1,31 +1,126 @@
 package app
 
 import (
+	"container/list"
 	"math"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-func newMemoryCache() *MemoryCache {
-	return &MemoryCache{data: map[string]cacheValue{}}
+func newMemoryCache(maxEntries int, maxBytes int64, maxItemBytes int64) *MemoryCache {
+	if maxEntries <= 0 {
+		maxEntries = 3000
+	}
+	if maxBytes <= 0 {
+		maxBytes = 128 * 1024 * 1024
+	}
+	if maxItemBytes <= 0 {
+		maxItemBytes = 256 * 1024
+	}
+	return &MemoryCache{
+		data:         map[string]cacheValue{},
+		maxEntries:   maxEntries,
+		maxBytes:     maxBytes,
+		maxItemBytes: maxItemBytes,
+		order:        list.New(),
+		index:        map[string]*list.Element{},
+	}
 }
 
 func (m *MemoryCache) Get(key string) ([]byte, bool) {
-	m.mu.RLock()
+	m.mu.Lock()
 	v, ok := m.data[key]
-	m.mu.RUnlock()
+	if ok {
+		if el := m.index[key]; el != nil {
+			m.order.MoveToBack(el)
+		}
+	}
+	m.mu.Unlock()
 	if !ok || time.Now().After(v.ExpireAt) {
 		return nil, false
 	}
 	return v.Value, true
 }
 
-func (m *MemoryCache) Set(key string, val []byte, ttl time.Duration) {
+func (m *MemoryCache) Set(key string, val []byte, ttl time.Duration) bool {
+	size := int64(len(val))
+	if size <= 0 || size > m.maxItemBytes {
+		return false
+	}
+	now := time.Now()
 	m.mu.Lock()
-	m.data[key] = cacheValue{Value: val, ExpireAt: time.Now().Add(ttl)}
+	defer m.mu.Unlock()
+
+	if old, ok := m.data[key]; ok {
+		m.currentBytes -= old.Size
+	}
+	m.data[key] = cacheValue{Value: val, ExpireAt: now.Add(ttl), Size: size}
+	m.currentBytes += size
+	if el := m.index[key]; el != nil {
+		m.order.MoveToBack(el)
+	} else {
+		m.index[key] = m.order.PushBack(cacheOrderEntry{Key: key})
+	}
+
+	for len(m.data) > m.maxEntries || m.currentBytes > m.maxBytes {
+		front := m.order.Front()
+		if front == nil {
+			break
+		}
+		entry, _ := front.Value.(cacheOrderEntry)
+		m.removeByKey(entry.Key)
+	}
+	return true
+}
+
+func (m *MemoryCache) removeByKey(key string) {
+	if el := m.index[key]; el != nil {
+		m.order.Remove(el)
+		delete(m.index, key)
+	}
+	if old, ok := m.data[key]; ok {
+		m.currentBytes -= old.Size
+		if m.currentBytes < 0 {
+			m.currentBytes = 0
+		}
+		delete(m.data, key)
+	}
+}
+
+func (m *MemoryCache) evictExpired(now time.Time) {
+	for k, v := range m.data {
+		if now.After(v.ExpireAt) {
+			m.removeByKey(k)
+		}
+	}
+}
+
+func (m *MemoryCache) Reconfigure(maxEntries int, maxBytes int64, maxItemBytes int64) {
+	if maxEntries <= 0 {
+		maxEntries = 3000
+	}
+	if maxBytes <= 0 {
+		maxBytes = 128 * 1024 * 1024
+	}
+	if maxItemBytes <= 0 {
+		maxItemBytes = 256 * 1024
+	}
+	m.mu.Lock()
+	m.maxEntries = maxEntries
+	m.maxBytes = maxBytes
+	m.maxItemBytes = maxItemBytes
+	for len(m.data) > m.maxEntries || m.currentBytes > m.maxBytes {
+		front := m.order.Front()
+		if front == nil {
+			break
+		}
+		entry, _ := front.Value.(cacheOrderEntry)
+		m.removeByKey(entry.Key)
+	}
 	m.mu.Unlock()
 }
 
@@ -35,11 +130,7 @@ func (m *MemoryCache) gcLoop() {
 	for range ticker.C {
 		now := time.Now()
 		m.mu.Lock()
-		for k, v := range m.data {
-			if now.After(v.ExpireAt) {
-				delete(m.data, k)
-			}
-		}
+		m.evictExpired(now)
 		m.mu.Unlock()
 	}
 }
@@ -71,9 +162,24 @@ func (rl *RateLimiter) Allow(key string, limit EndpointLimit) bool {
 
 func (s *APIServer) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-AppId, X-Timestamp, X-Signature")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		isAdminAPI := strings.HasPrefix(r.URL.Path, "/admin/api/")
+		if isAdminAPI {
+			allowed := strings.TrimSpace(s.cfg.AdminAllowedOrigin)
+			if allowed != "" {
+				if origin == allowed {
+					w.Header().Set("Access-Control-Allow-Origin", allowed)
+					w.Header().Set("Vary", "Origin")
+				} else if r.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+			}
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -84,13 +190,24 @@ func (s *APIServer) cors(next http.Handler) http.Handler {
 
 func (s *APIServer) frontendHandler() http.Handler {
 	dist := getenv("FRONTEND_DIST", filepath.Clean(filepath.Join(".", "..", "frontend", "dist")))
+	distAbs, _ := filepath.Abs(dist)
 	index := filepath.Join(dist, "index.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/admin/api/") {
 			writeJSON(w, http.StatusNotFound, "NOT_FOUND", "route not found", nil)
 			return
 		}
-		target := filepath.Join(dist, filepath.Clean(r.URL.Path))
+		cleanPath := pathpkg.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+		cleanPath = strings.TrimPrefix(cleanPath, "/")
+		target := filepath.Join(dist, filepath.FromSlash(cleanPath))
+		targetAbs, _ := filepath.Abs(target)
+		if distAbs != "" && targetAbs != "" {
+			prefix := distAbs + string(filepath.Separator)
+			if targetAbs != distAbs && !strings.HasPrefix(targetAbs, prefix) {
+				writeJSON(w, http.StatusBadRequest, "BAD_PATH", "invalid path", nil)
+				return
+			}
+		}
 		if _, err := os.Stat(target); err == nil && !strings.HasSuffix(r.URL.Path, "/") {
 			http.ServeFile(w, r, target)
 			return
