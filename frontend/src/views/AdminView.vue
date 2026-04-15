@@ -63,6 +63,78 @@
     </v-card-text>
   </v-card>
 
+  <v-card :loading="pageLoading">
+    <v-card-title>所有用户调用统计</v-card-title>
+    <v-card-text>
+      <div v-if="!pageLoading && !pageError && userStats.length === 0" class="text-medium-emphasis text-body-2 py-4">暂无统计数据</div>
+      <v-table v-else-if="userStats.length > 0" class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>邮箱</th>
+            <th>AppId</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th class="text-end">总请求</th>
+            <th class="text-end">成功</th>
+            <th class="text-end">鉴权失败</th>
+            <th class="text-end">限流</th>
+            <th class="text-end">上游失败</th>
+            <th class="text-end">超时</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="s in userStats" :key="s.id">
+            <td>{{ s.id }}</td>
+            <td class="text-break">{{ s.email }}</td>
+            <td>{{ s.appId }}</td>
+            <td>{{ s.role }}</td>
+            <td>{{ s.status }}</td>
+            <td class="text-end">{{ s.total }}</td>
+            <td class="text-end">{{ s.success }}</td>
+            <td class="text-end">{{ s.authFail }}</td>
+            <td class="text-end">{{ s.rateLimited }}</td>
+            <td class="text-end">{{ s.upstreamFail }}</td>
+            <td class="text-end">{{ s.timeout }}</td>
+          </tr>
+        </tbody>
+      </v-table>
+    </v-card-text>
+  </v-card>
+
+  <v-card :loading="pageLoading">
+    <v-card-title>所有用户风控记录</v-card-title>
+    <v-card-text>
+      <div v-if="!pageLoading && !pageError && riskEvents.length === 0" class="text-medium-emphasis text-body-2 py-4">暂无风控记录</div>
+      <v-table v-else-if="riskEvents.length > 0" class="admin-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>邮箱</th>
+            <th>AppId</th>
+            <th>级别</th>
+            <th>规则</th>
+            <th>指标值</th>
+            <th>详情</th>
+            <th>时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in riskEvents" :key="r.id">
+            <td>{{ r.id }}</td>
+            <td class="text-break">{{ r.email }}</td>
+            <td>{{ r.appId }}</td>
+            <td>{{ r.level }}</td>
+            <td>{{ r.ruleName }}</td>
+            <td>{{ r.metricValue }}</td>
+            <td class="text-break">{{ r.detail }}</td>
+            <td class="text-no-wrap">{{ r.createdAt }}</td>
+          </tr>
+        </tbody>
+      </v-table>
+    </v-card-text>
+  </v-card>
+
   <v-dialog v-model="banDialog" max-width="420" persistent>
     <v-card>
       <v-card-title>确认封禁</v-card-title>
@@ -88,6 +160,8 @@ import { showErrorSnackbar, showSuccessSnackbar } from "../snackbar";
 const users = ref([]);
 const global = ref({});
 const cfg = ref({});
+const userStats = ref([]);
+const riskEvents = ref([]);
 const pageLoading = ref(true);
 const pageError = ref("");
 const saveCfgLoading = ref(false);
@@ -100,14 +174,18 @@ async function loadAll() {
   pageLoading.value = true;
   pageError.value = "";
   try {
-    const [u, g, c] = await Promise.all([
+    const [u, g, c, s, r] = await Promise.all([
       apiGet("/admin/api/admin/users"),
       apiGet("/admin/api/admin/stats/global"),
-      apiGet("/admin/api/admin/config")
+      apiGet("/admin/api/admin/config"),
+      apiGet("/admin/api/admin/stats/all-users"),
+      apiGet("/admin/api/admin/risk/all-events")
     ]);
     users.value = u.data || [];
     global.value = g.data || {};
     cfg.value = c.data || {};
+    userStats.value = s.data || [];
+    riskEvents.value = r.data || [];
   } catch (e) {
     const msg = e?.response?.data?.message || e.message || "加载失败";
     pageError.value = msg;

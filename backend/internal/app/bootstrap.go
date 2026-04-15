@@ -118,6 +118,8 @@ func registerRoutes(r chi.Router, server *APIServer) {
 			adm.Post("/admin/users/{userID}/ban", server.handleAdminBan)
 			adm.Post("/admin/users/{userID}/unban", server.handleAdminUnban)
 			adm.Get("/admin/stats/global", server.handleAdminGlobalStats)
+			adm.Get("/admin/stats/all-users", server.handleAdminAllUserStats)
+			adm.Get("/admin/risk/all-events", server.handleAdminAllRiskEvents)
 			adm.Get("/admin/config", server.handleAdminGetConfig)
 			adm.Put("/admin/config", server.handleAdminUpdateConfig)
 		})

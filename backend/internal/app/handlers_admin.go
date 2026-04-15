@@ -124,3 +124,69 @@ func (s *APIServer) handleAdminUpdateConfig(w http.ResponseWriter, r *http.Reque
 	s.cache.Reconfigure(cfg.CacheMaxEntries, cfg.CacheMaxBytes, cfg.CacheMaxItemBytes)
 	writeJSON(w, http.StatusOK, "OK", "updated", cfg)
 }
+
+func (s *APIServer) handleAdminAllUserStats(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(`
+		SELECT u.id, u.email, u.app_id, u.role, u.status,
+		       COALESCE(SUM(m.total), 0) as total,
+		       COALESCE(SUM(m.success), 0) as success,
+		       COALESCE(SUM(m.auth_fail), 0) as auth_fail,
+		       COALESCE(SUM(m.rate_limited), 0) as rate_limited,
+		       COALESCE(SUM(m.upstream_fail), 0) as upstream_fail,
+		       COALESCE(SUM(m.timeout), 0) as timeout
+		FROM users u
+		LEFT JOIN app_metrics_daily m ON u.app_id = m.app_id
+		GROUP BY u.id, u.email, u.app_id, u.role, u.status
+		ORDER BY u.id DESC
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
+		return
+	}
+	defer rows.Close()
+	var out []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var email, appID, role, status string
+		var total, success, authFail, limited, upFail, timeout int64
+		if err := rows.Scan(&id, &email, &appID, &role, &status, &total, &success, &authFail, &limited, &upFail, &timeout); err == nil {
+			out = append(out, map[string]interface{}{
+				"id": id, "email": email, "appId": appID, "role": role, "status": status,
+				"total": total, "success": success, "authFail": authFail,
+				"rateLimited": limited, "upstreamFail": upFail, "timeout": timeout,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, "OK", "", out)
+}
+
+func (s *APIServer) handleAdminAllRiskEvents(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(`
+		SELECT r.id, r.app_id, r.user_id, u.email, r.level, r.rule_name, r.metric_value, r.detail, r.created_at
+		FROM risk_events r
+		JOIN users u ON r.user_id = u.id
+		ORDER BY r.created_at DESC
+		LIMIT 1000
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
+		return
+	}
+	defer rows.Close()
+	var out []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var appID string
+		var userID int64
+		var email, level, ruleName, detail, createdAt string
+		var metricValue float64
+		if err := rows.Scan(&id, &appID, &userID, &email, &level, &ruleName, &metricValue, &detail, &createdAt); err == nil {
+			out = append(out, map[string]interface{}{
+				"id": id, "appId": appID, "userId": userID, "email": email,
+				"level": level, "ruleName": ruleName, "metricValue": metricValue,
+				"detail": detail, "createdAt": createdAt,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, "OK", "", out)
+}
