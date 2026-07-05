@@ -120,6 +120,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 			adm.Get("/admin/stats/global", server.handleAdminGlobalStats)
 			adm.Get("/admin/config", server.handleAdminGetConfig)
 			adm.Put("/admin/config", server.handleAdminUpdateConfig)
+			adm.Post("/admin/cache/clear", server.handleAdminClearCache)
 		})
 	})
 

@@ -124,3 +124,9 @@ func (s *APIServer) handleAdminUpdateConfig(w http.ResponseWriter, r *http.Reque
 	s.cache.Reconfigure(cfg.CacheMaxEntries, cfg.CacheMaxBytes, cfg.CacheMaxItemBytes)
 	writeJSON(w, http.StatusOK, "OK", "updated", cfg)
 }
+
+func (s *APIServer) handleAdminClearCache(w http.ResponseWriter, r *http.Request) {
+	s.cache.Clear()
+	s.clearReplayCache()
+	writeJSON(w, http.StatusOK, "OK", "cache cleared", nil)
+}

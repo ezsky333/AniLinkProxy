@@ -78,6 +78,12 @@ func (s *APIServer) replayGCLoop() {
 	}
 }
 
+func (s *APIServer) clearReplayCache() {
+	s.replayMu.Lock()
+	s.replaySeen = map[string]time.Time{}
+	s.replayMu.Unlock()
+}
+
 func (s *APIServer) isReplayAndRemember(key string, ttlSec int64) bool {
 	if ttlSec <= 0 {
 		ttlSec = 600

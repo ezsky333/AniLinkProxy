@@ -100,6 +100,15 @@ func (m *MemoryCache) evictExpired(now time.Time) {
 	}
 }
 
+func (m *MemoryCache) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data = map[string]cacheValue{}
+	m.order = list.New()
+	m.index = map[string]*list.Element{}
+	m.currentBytes = 0
+}
+
 func (m *MemoryCache) Reconfigure(maxEntries int, maxBytes int64, maxItemBytes int64) {
 	if maxEntries <= 0 {
 		maxEntries = 3000

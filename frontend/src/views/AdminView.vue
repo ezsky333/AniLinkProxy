@@ -6,6 +6,7 @@
       <span>超管控制台</span>
       <v-spacer />
       <v-btn color="primary" variant="tonal" :loading="pageLoading" @click="loadAll">刷新数据</v-btn>
+      <v-btn color="warning" variant="tonal" :loading="clearCacheLoading" @click="clearCache" class="ml-3">清除缓存</v-btn>
     </v-card-title>
     <v-card-text>
       <v-alert v-if="pageError" type="error" variant="tonal" class="mb-3">{{ pageError }}</v-alert>
@@ -91,6 +92,7 @@ const cfg = ref({});
 const pageLoading = ref(true);
 const pageError = ref("");
 const saveCfgLoading = ref(false);
+const clearCacheLoading = ref(false);
 const banDialog = ref(false);
 const banTarget = ref(null);
 const banLoading = ref(false);
@@ -165,6 +167,19 @@ async function saveCfg() {
     showErrorSnackbar(msg);
   } finally {
     saveCfgLoading.value = false;
+  }
+}
+
+async function clearCache() {
+  clearCacheLoading.value = true;
+  try {
+    await apiPost("/admin/api/admin/cache/clear");
+    showSuccessSnackbar("缓存已清除（响应缓存 + 重放防护缓存）");
+  } catch (e) {
+    const msg = e?.response?.data?.message || e.message || "清除失败";
+    showErrorSnackbar(msg);
+  } finally {
+    clearCacheLoading.value = false;
   }
 }
 
