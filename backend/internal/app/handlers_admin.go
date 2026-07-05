@@ -130,3 +130,111 @@ func (s *APIServer) handleAdminClearCache(w http.ResponseWriter, r *http.Request
 	s.clearReplayCache()
 	writeJSON(w, http.StatusOK, "OK", "cache cleared", nil)
 }
+
+func (s *APIServer) handleAdminAllUserStats(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(`
+		SELECT u.id, u.email, u.app_id, u.role, u.status,
+		       COALESCE(SUM(m.total), 0) as total,
+		       COALESCE(SUM(m.success), 0) as success,
+		       COALESCE(SUM(m.auth_fail), 0) as auth_fail,
+		       COALESCE(SUM(m.rate_limited), 0) as rate_limited,
+		       COALESCE(SUM(m.upstream_fail), 0) as upstream_fail,
+		       COALESCE(SUM(m.timeout), 0) as timeout
+		FROM users u
+		LEFT JOIN app_metrics_daily m ON u.app_id = m.app_id
+		GROUP BY u.id, u.email, u.app_id, u.role, u.status
+		ORDER BY u.id DESC
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
+		return
+	}
+	defer rows.Close()
+	var out []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var email, appID, role, status string
+		var total, success, authFail, limited, upFail, timeout int64
+		if err := rows.Scan(&id, &email, &appID, &role, &status, &total, &success, &authFail, &limited, &upFail, &timeout); err == nil {
+			out = append(out, map[string]interface{}{
+				"id": id, "email": email, "appId": appID, "role": role, "status": status,
+				"total": total, "success": success, "authFail": authFail,
+				"rateLimited": limited, "upstreamFail": upFail, "timeout": timeout,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, "OK", "", out)
+}
+
+func (s *APIServer) handleAdminAllRiskEvents(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.Query(`
+		SELECT r.id, r.app_id, r.user_id, u.email, r.level, r.rule_name, r.metric_value, r.detail, r.created_at
+		FROM risk_events r
+		JOIN users u ON r.user_id = u.id
+		ORDER BY r.created_at DESC
+		LIMIT 1000
+	`)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
+		return
+	}
+	defer rows.Close()
+	var out []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var appID string
+		var userID int64
+		var email, level, ruleName, detail, createdAt string
+		var metricValue float64
+		if err := rows.Scan(&id, &appID, &userID, &email, &level, &ruleName, &metricValue, &detail, &createdAt); err == nil {
+			out = append(out, map[string]interface{}{
+				"id": id, "appId": appID, "userId": userID, "email": email,
+				"level": level, "ruleName": ruleName, "metricValue": metricValue,
+				"detail": detail, "createdAt": createdAt,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, "OK", "", out)
+}
+
+func (s *APIServer) handleAdminUserStats(w http.ResponseWriter, r *http.Request) {
+	userID, _ := strconv.ParseInt(chi.URLParam(r, "userID"), 10, 64)
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from == "" {
+		from = time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+	}
+	if to == "" {
+		to = time.Now().Format("2006-01-02")
+	}
+	rows, err := s.db.Query(`SELECT endpoint, SUM(total), SUM(success), SUM(auth_fail), SUM(rate_limited), SUM(upstream_fail), SUM(timeout), SUM(total_latency_ms)
+		FROM app_metrics_daily WHERE app_id=(SELECT app_id FROM users WHERE id=?) AND date>=? AND date<=?
+		GROUP BY endpoint ORDER BY endpoint`, userID, from, to)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
+		return
+	}
+	defer rows.Close()
+	type rowData struct {
+		Endpoint     string  `json:"endpoint"`
+		Total        int64   `json:"total"`
+		Success      int64   `json:"success"`
+		AuthFail     int64   `json:"authFail"`
+		RateLimited  int64   `json:"rateLimited"`
+		UpstreamFail int64   `json:"upstreamFail"`
+		Timeout      int64   `json:"timeout"`
+		AvgLatencyMs float64 `json:"avgLatencyMs"`
+	}
+	var out []rowData
+	for rows.Next() {
+		var d rowData
+		var totalLatency int64
+		if err := rows.Scan(&d.Endpoint, &d.Total, &d.Success, &d.AuthFail, &d.RateLimited, &d.UpstreamFail, &d.Timeout, &totalLatency); err == nil {
+			if d.Total > 0 {
+				d.AvgLatencyMs = float64(totalLatency) / float64(d.Total)
+			}
+			out = append(out, d)
+		}
+	}
+	writeJSON(w, http.StatusOK, "OK", "", out)
+}

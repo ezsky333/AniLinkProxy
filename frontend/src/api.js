@@ -20,3 +20,15 @@ export async function apiPut(url, body = {}) {
   const { data } = await client.put(url, body);
   return data;
 }
+
+export async function apiAdminAllUserStats() {
+  return apiGet("/admin/api/admin/stats/all-users");
+}
+
+export async function apiAdminAllRiskEvents() {
+  return apiGet("/admin/api/admin/risk/all-events");
+}
+
+export async function apiAdminUserStats(userId, params = {}) {
+  return apiGet(`/admin/api/admin/stats/user/${userId}`, params);
+}
