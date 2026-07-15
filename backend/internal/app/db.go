@@ -24,6 +24,7 @@ func initSchema(db *sql.DB) error {
 			status TEXT NOT NULL DEFAULT 'active',
 			ban_reason TEXT,
 			ban_until TEXT,
+			comment_push_enabled INTEGER NOT NULL DEFAULT 1,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			last_login_at TEXT
@@ -85,6 +86,11 @@ func initSchema(db *sql.DB) error {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
+	}
+	// 迁移：为已有 users 表补充 comment_push_enabled 列（v2 新增）。
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN comment_push_enabled INTEGER NOT NULL DEFAULT 1`); err != nil {
+		// SQLite 不支持 IF NOT EXISTS 在 ALTER TABLE 中，忽略重复列错误。
+		_ = err
 	}
 	return nil
 }

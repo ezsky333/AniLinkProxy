@@ -124,14 +124,16 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var u User
 	var secretShown int
-	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at FROM users WHERE email=?`,
+	var commentPushInt int
+	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,comment_push_enabled,created_at FROM users WHERE email=?`,
 		email).
-		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &commentPushInt, &u.CreatedAt)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, "LOGIN_FAILED", "invalid credentials", nil)
 		return
 	}
 	u.SecretSeen = secretShown == 1
+	u.CommentPushEnabled = commentPushInt == 1
 	if accountBannedForHTTP(u) {
 		writeJSON(w, http.StatusForbidden, "BANNED", "account banned", nil)
 		return
@@ -157,12 +159,13 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), u.ID)
 	writeJSON(w, http.StatusOK, "OK", "", map[string]interface{}{
 		"user": map[string]interface{}{
-			"id":          u.ID,
-			"email":       u.Email,
-			"appId":       u.AppID,
-			"role":        u.Role,
-			"status":      u.Status,
-			"secretShown": u.SecretSeen,
+			"id":                 u.ID,
+			"email":              u.Email,
+			"appId":              u.AppID,
+			"role":               u.Role,
+			"status":             u.Status,
+			"secretShown":        u.SecretSeen,
+			"commentPushEnabled": u.CommentPushEnabled,
 		},
 	})
 }

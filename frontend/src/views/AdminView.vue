@@ -141,6 +141,7 @@
                   <th>AppId</th>
                   <th>角色</th>
                   <th>状态</th>
+                  <th>允许发送弹幕</th>
                   <th>封禁到期</th>
                   <th>操作</th>
                 </tr>
@@ -152,6 +153,16 @@
                   <td>{{ u.appId }}</td>
                   <td>{{ u.role }}</td>
                   <td>{{ u.status }}</td>
+                  <td>
+                    <v-switch
+                      :model-value="u.commentPushEnabled"
+                      :loading="commentPushLoadingId === u.id"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      @update:model-value="(val) => toggleCommentPush(u, val)"
+                    />
+                  </td>
                   <td class="text-no-wrap">{{ u.banUntil }}</td>
                   <td>
                     <v-btn size="small" color="error" variant="tonal" class="mr-2 mb-1" @click="openBanDialog(u)">封禁</v-btn>
@@ -235,6 +246,7 @@ const banDialog = ref(false);
 const banTarget = ref(null);
 const banLoading = ref(false);
 const unbanLoadingId = ref(null);
+const commentPushLoadingId = ref(null);
 
 // User stats
 const selectedUser = ref(null);
@@ -337,6 +349,20 @@ async function unban(id) {
     showErrorSnackbar(msg);
   } finally {
     unbanLoadingId.value = null;
+  }
+}
+
+async function toggleCommentPush(u, enabled) {
+  commentPushLoadingId.value = u.id;
+  try {
+    await apiPost(`/admin/api/admin/users/${u.id}/toggle-comment-push`, { enabled });
+    u.commentPushEnabled = enabled;
+    showSuccessSnackbar(enabled ? "已开启弹幕发送" : "已关闭弹幕发送");
+  } catch (e) {
+    const msg = e?.response?.data?.message || e.message || "操作失败";
+    showErrorSnackbar(msg);
+  } finally {
+    commentPushLoadingId.value = null;
   }
 }
 

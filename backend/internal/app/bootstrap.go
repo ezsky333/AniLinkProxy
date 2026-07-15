@@ -117,6 +117,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 			adm.Get("/admin/users", server.handleAdminUsers)
 			adm.Post("/admin/users/{userID}/ban", server.handleAdminBan)
 			adm.Post("/admin/users/{userID}/unban", server.handleAdminUnban)
+			adm.Post("/admin/users/{userID}/toggle-comment-push", server.handleAdminToggleCommentPush)
 			adm.Get("/admin/stats/global", server.handleAdminGlobalStats)
 			adm.Get("/admin/stats/user/{userID}", server.handleAdminUserStats)
 			adm.Get("/admin/risk/all-events", server.handleAdminAllRiskEvents)
@@ -128,6 +129,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 
 	// Proxy routes
 	r.Get("/api/v2/comment/{episodeId}", server.proxyGET)
+	r.Post("/api/v2/comment/{episodeId}/app", server.proxyPOST)
 	r.Get("/api/v2/search/episodes", server.proxyGET)
 	r.Get("/api/v2/bangumi/{animeId}", server.proxyGET)
 	r.Get("/api/v2/bangumi/shin", server.proxyGET)

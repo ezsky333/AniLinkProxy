@@ -10,7 +10,7 @@ import (
 )
 
 func (s *APIServer) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT id,email,app_id,role,status,ban_reason,ban_until,created_at FROM users ORDER BY id DESC`)
+	rows, err := s.db.Query(`SELECT id,email,app_id,role,status,ban_reason,ban_until,comment_push_enabled,created_at FROM users ORDER BY id DESC`)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", nil)
 		return
@@ -21,10 +21,11 @@ func (s *APIServer) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		var id int64
 		var email, appID, role, status, created string
 		var reason, until sql.NullString
-		if err := rows.Scan(&id, &email, &appID, &role, &status, &reason, &until, &created); err == nil {
+		var commentPushInt int
+		if err := rows.Scan(&id, &email, &appID, &role, &status, &reason, &until, &commentPushInt, &created); err == nil {
 			out = append(out, map[string]interface{}{
 				"id": id, "email": email, "appId": appID, "role": role, "status": status,
-				"banReason": reason.String, "banUntil": until.String, "createdAt": created,
+				"banReason": reason.String, "banUntil": until.String, "commentPushEnabled": commentPushInt == 1, "createdAt": created,
 			})
 		}
 	}
@@ -195,6 +196,27 @@ func (s *APIServer) handleAdminAllRiskEvents(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	writeJSON(w, http.StatusOK, "OK", "", out)
+}
+
+func (s *APIServer) handleAdminToggleCommentPush(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "userID"), 10, 64)
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if !decodeJSONStrict(w, r, &req) {
+		return
+	}
+	val := 0
+	if req.Enabled {
+		val = 1
+	}
+	_, err := s.db.Exec(`UPDATE users SET comment_push_enabled=?, updated_at=? WHERE id=?`,
+		val, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "toggle failed", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, "OK", "updated", map[string]bool{"commentPushEnabled": req.Enabled})
 }
 
 func (s *APIServer) handleAdminUserStats(w http.ResponseWriter, r *http.Request) {

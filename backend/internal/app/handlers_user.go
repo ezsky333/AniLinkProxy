@@ -13,12 +13,13 @@ import (
 func (s *APIServer) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := userFromCtx(r.Context())
 	writeJSON(w, http.StatusOK, "OK", "", map[string]interface{}{
-		"id":          u.ID,
-		"email":       u.Email,
-		"appId":       u.AppID,
-		"role":        u.Role,
-		"status":      u.Status,
-		"secretShown": u.SecretSeen,
+		"id":                  u.ID,
+		"email":               u.Email,
+		"appId":               u.AppID,
+		"role":                u.Role,
+		"status":              u.Status,
+		"secretShown":         u.SecretSeen,
+		"commentPushEnabled":  u.CommentPushEnabled,
 	})
 }
 

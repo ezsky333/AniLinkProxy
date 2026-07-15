@@ -69,13 +69,15 @@ func accountBannedForHTTP(u User) bool {
 func (s *APIServer) findUserByAppID(appID string) (User, error) {
 	var u User
 	var secretShown int
-	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at
+	var commentPushInt int
+	err := s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,comment_push_enabled,created_at
 		FROM users WHERE app_id=?`, appID).
-		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &commentPushInt, &u.CreatedAt)
 	if err != nil {
 		return u, err
 	}
 	u.SecretSeen = secretShown == 1
+	u.CommentPushEnabled = commentPushInt == 1
 	u.AppSecret, err = unsealAppSecret(u.AppSecret, s.cfg.SecretWrapKey)
 	return u, err
 }
@@ -111,13 +113,15 @@ func (s *APIServer) parseJWT(tokenStr string) (User, error) {
 	}
 	var u User
 	var secretShown int
-	err = s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,created_at
+	var commentPushInt int
+	err = s.db.QueryRow(`SELECT id,email,password_hash,app_id,app_secret,secret_shown,role,status,ban_reason,ban_until,comment_push_enabled,created_at
 		FROM users WHERE id=?`, claims.UserID).
-		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.Password, &u.AppID, &u.AppSecret, &secretShown, &u.Role, &u.Status, &u.BanReason, &u.BanUntil, &commentPushInt, &u.CreatedAt)
 	if err != nil {
 		return u, err
 	}
 	u.SecretSeen = secretShown == 1
+	u.CommentPushEnabled = commentPushInt == 1
 	u.AppSecret, err = unsealAppSecret(u.AppSecret, s.cfg.SecretWrapKey)
 	return u, err
 }

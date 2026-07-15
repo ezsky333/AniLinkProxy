@@ -44,6 +44,12 @@ func (s *APIServer) proxyRequest(w http.ResponseWriter, r *http.Request, canCach
 		s.recordMetric("", endpoint, start, code)
 		return
 	}
+	// 检查账号维度「是否允许发送弹幕」开关
+	if endpoint == "comment_push" && !user.CommentPushEnabled {
+		writeJSON(w, http.StatusForbidden, "COMMENT_PUSH_DISABLED", "comment push is disabled for this account", nil)
+		s.recordMetric(user.AppID, endpoint, start, "COMMENT_PUSH_DISABLED")
+		return
+	}
 	limit := s.getRateLimit(endpoint)
 	if !s.rl.Allow(user.AppID+":"+endpoint, limit) {
 		writeJSON(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many requests", nil)
@@ -190,6 +196,8 @@ func (s *APIServer) attachUpstreamSignature(req *http.Request, path string) {
 
 func endpointKey(path string) string {
 	switch {
+	case strings.HasSuffix(path, "/app") && strings.HasPrefix(path, "/api/v2/comment/"):
+		return "comment_push"
 	case strings.HasPrefix(path, "/api/v2/comment/"):
 		return "comment"
 	case path == "/api/v2/search/episodes":

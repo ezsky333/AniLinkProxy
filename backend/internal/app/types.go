@@ -66,17 +66,18 @@ type EndpointLimit struct {
 }
 
 type User struct {
-	ID         int64
-	Email      string
-	Password   string
-	AppID      string
-	AppSecret  string
-	SecretSeen bool
-	Role       string
-	Status     string
-	BanReason  sql.NullString
-	BanUntil   sql.NullString
-	CreatedAt  string
+	ID                 int64
+	Email              string
+	Password           string
+	AppID              string
+	AppSecret          string
+	SecretSeen         bool
+	Role               string
+	Status             string
+	BanReason          sql.NullString
+	BanUntil           sql.NullString
+	CommentPushEnabled bool
+	CreatedAt          string
 }
 
 type APIServer struct {
