@@ -133,6 +133,11 @@ func registerRoutes(r chi.Router, server *APIServer) {
 	r.Get("/api/v2/search/episodes", server.proxyGET)
 	r.Get("/api/v2/bangumi/{animeId}", server.proxyGET)
 	r.Get("/api/v2/bangumi/shin", server.proxyGET)
+	r.Get("/api/v2/bangumi/season/anime", server.proxyGET)
+	r.Get("/api/v2/bangumi/season/anime/{year}/{month}", server.proxyGET)
+	r.Get("/api/v2/trending/all/hot/{period}", server.proxyGET)
+	r.Get("/api/v2/trending/all/rising/{period}", server.proxyGET)
+	r.Get("/api/v2/trending/new-anime/hot/{scope}", server.proxyGET)
 	r.Post("/api/v2/match", server.proxyPOST)
 	r.Post("/api/v2/match/batch", server.proxyPOST)
 
