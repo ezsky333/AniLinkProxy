@@ -202,6 +202,8 @@ func endpointKey(path string) string {
 		return "comment"
 	case path == "/api/v2/search/episodes":
 		return "search"
+	case strings.HasPrefix(path, "/api/v2/bangumi/bgmtv/"):
+		return "bgmtv"
 	case strings.HasPrefix(path, "/api/v2/bangumi/shin"):
 		return "shin"
 	case strings.HasPrefix(path, "/api/v2/bangumi/season/anime"):
@@ -224,8 +226,8 @@ func endpointKey(path string) string {
 }
 
 func isCacheableEndpoint(endpoint string) bool {
-	return endpoint == "comment" || endpoint == "search" || endpoint == "bangumi" || endpoint == "shin" ||
-		endpoint == "season_anime" ||
+	return endpoint == "comment" || endpoint == "search" || endpoint == "bangumi" || endpoint == "bgmtv" ||
+		endpoint == "shin" || endpoint == "season_anime" ||
 		endpoint == "trending_hot" || endpoint == "trending_rising" || endpoint == "trending_new_anime"
 }
 func cacheKeyOf(path string, q map[string][]string) string {
