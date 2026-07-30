@@ -131,6 +131,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 	r.Get("/api/v2/comment/{episodeId}", server.proxyGET)
 	r.Post("/api/v2/comment/{episodeId}/app", server.proxyPOST)
 	r.Get("/api/v2/search/episodes", server.proxyGET)
+	r.Get("/api/v2/search/anime", server.proxyGET)
 	r.Get("/api/v2/bangumi/{animeId}", server.proxyGET)
 	r.Get("/api/v2/bangumi/bgmtv/{bgmtvSubjectId}", server.proxyGET)
 	r.Get("/api/v2/bangumi/shin", server.proxyGET)

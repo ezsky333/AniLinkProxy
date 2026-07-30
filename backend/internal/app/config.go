@@ -68,6 +68,7 @@ func defaultRuntimeConfig() RuntimeConfig {
 		CacheTTLMin: map[string]int{
 			"comment":           30,
 			"search":            180,
+			"search_anime":      180,
 			"bangumi":           360,
 			"bgmtv":             360,
 			"shin":              360,
@@ -80,6 +81,7 @@ func defaultRuntimeConfig() RuntimeConfig {
 			"comment":            {RPS: 6, Burst: 12},
 			"comment_push":       {RPS: 2, Burst: 5},
 			"search":             {RPS: 2, Burst: 4},
+			"search_anime":       {RPS: 2, Burst: 4},
 			"bangumi":            {RPS: 2, Burst: 4},
 			"bgmtv":              {RPS: 2, Burst: 4},
 			"shin":               {RPS: 1, Burst: 2},
