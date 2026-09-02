@@ -96,7 +96,7 @@ func registerRoutes(r chi.Router, server *APIServer) {
 		admin.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, "OK", "running", map[string]string{"time": time.Now().Format(time.RFC3339)})
 		})
-		admin.Get("/auth/turnstile/site-key", server.handleTurnstileSiteKey)
+		admin.Get("/auth/captcha/config", server.handleCaptchaConfig)
 		admin.Post("/auth/email/send-register", server.handleSendRegisterCode)
 		admin.Post("/auth/register", server.handleRegister)
 		admin.Post("/auth/login", server.handleLogin)

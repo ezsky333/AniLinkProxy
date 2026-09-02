@@ -11,25 +11,34 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func (s *APIServer) handleTurnstileSiteKey(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.TurnstileSiteKey == "" {
-		writeJSON(w, http.StatusOK, "OK", "", map[string]string{"siteKey": ""})
-		return
+// captchaReq 统一承载前端人机验证令牌字段，兼容 captchaToken 与历史 turnstileToken。
+type captchaReq struct {
+	CaptchaToken string `json:"captchaToken"`
+	// TurnstileToken 仅用于向后兼容旧客户端。
+	TurnstileToken string `json:"turnstileToken"`
+}
+
+func (c captchaReq) Get(key string) string {
+	if key == "captchaToken" {
+		return c.CaptchaToken
 	}
-	writeJSON(w, http.StatusOK, "OK", "", map[string]string{"siteKey": s.cfg.TurnstileSiteKey})
+	if key == "turnstileToken" {
+		return c.TurnstileToken
+	}
+	return ""
 }
 
 func (s *APIServer) handleSendRegisterCode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email          string `json:"email"`
-		TurnstileToken string `json:"turnstileToken"`
+		Email string `json:"email"`
+		captchaReq
 	}
 	if !decodeJSONStrict(w, r, &req) {
 		return
 	}
-	if err := s.verifyTurnstile(req.TurnstileToken, s.clientIP(r)); err != nil {
-		log.Printf("turnstile verify (register code): %v", err)
-		writeJSON(w, http.StatusBadRequest, "TURNSTILE_INVALID", "人机验证失败，请重试", nil)
+	if err := s.verifyCaptcha(captchaTokenFrom(req.captchaReq), s.clientIP(r)); err != nil {
+		log.Printf("captcha verify (register code): %v", err)
+		writeJSON(w, http.StatusBadRequest, "CAPTCHA_INVALID", "人机验证失败，请重试", nil)
 		return
 	}
 	if !strings.Contains(req.Email, "@") {
@@ -103,9 +112,9 @@ func (s *APIServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email          string `json:"email"`
-		Password       string `json:"password"`
-		TurnstileToken string `json:"turnstileToken"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		captchaReq
 	}
 	if !decodeJSONStrict(w, r, &req) {
 		return
@@ -117,9 +126,9 @@ func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, "LOGIN_RATE_LIMITED", "too many login attempts", nil)
 		return
 	}
-	if err := s.verifyTurnstile(req.TurnstileToken, ip); err != nil {
-		log.Printf("turnstile verify (login): %v", err)
-		writeJSON(w, http.StatusBadRequest, "TURNSTILE_INVALID", "人机验证失败，请重试", nil)
+	if err := s.verifyCaptcha(captchaTokenFrom(req.captchaReq), ip); err != nil {
+		log.Printf("captcha verify (login): %v", err)
+		writeJSON(w, http.StatusBadRequest, "CAPTCHA_INVALID", "人机验证失败，请重试", nil)
 		return
 	}
 	var u User

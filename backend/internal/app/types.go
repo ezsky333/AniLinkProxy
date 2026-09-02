@@ -14,6 +14,12 @@ import (
 const (
 	roleUser  = "user"
 	roleAdmin = "admin"
+
+	// 人机验证提供商标识。
+	captchaProviderTurnstile = "turnstile"
+	captchaProviderAliyun    = "aliyun"
+	captchaProviderCaptchaLa = "captchala"
+	captchaProviderNone      = "none"
 )
 
 type AppConfig struct {
@@ -34,6 +40,22 @@ type AppConfig struct {
 
 	TurnstileSiteKey   string
 	TurnstileSecretKey string
+
+	// CaptchaProvider 决定前端渲染的人机验证形态与后端验签方式，取值见 captchaProvider* 常量。
+	CaptchaProvider string
+
+	// 阿里云 ESA AI 验证码 / 验证码2.0 相关配置。
+	AliyunCaptchaPrefix         string // 身份标（IDENTITY）
+	AliyunCaptchaRegion         string // cn（中国内地）或 sgp（新加坡）
+	AliyunCaptchaSceneID        string // 场景 ID
+	AliyunCaptchaAccessKeyID    string
+	AliyunCaptchaAccessKeySecret string
+	AliyunCaptchaEndpoint       string // 服务端验签 endpoint，为空则依据 region 自动推导
+
+	// CaptchaLa 智能验证码相关配置。
+	CaptchaLaAppKey    string
+	CaptchaLaAppSecret string
+
 	AdminAllowedOrigin string
 	TrustedProxyCIDRs  string
 
