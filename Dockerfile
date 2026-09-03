@@ -21,17 +21,13 @@ ENV PORT=8080 \
     SMTP_USERNAME= \
     SMTP_PASSWORD= \
     SMTP_FROM_ADDRESS= \
-    # 人机验证提供方：turnstile | aliyun | captchala | none（留空自动推断）
+    # 人机验证提供方：turnstile | geetest | captchala | none（留空自动推断）
     CAPTCHA_PROVIDER= \
     TURNSTILE_SITE_KEY= \
     TURNSTILE_SECRET_KEY= \
-    # 阿里云 ESA AI 验证码 / 验证码2.0
-    ALIYUN_CAPTCHA_PREFIX= \
-    ALIYUN_CAPTCHA_REGION=cn \
-    ALIYUN_CAPTCHA_SCENE_ID= \
-    ALIYUN_CAPTCHA_ACCESS_KEY_ID= \
-    ALIYUN_CAPTCHA_ACCESS_KEY_SECRET= \
-    ALIYUN_CAPTCHA_ENDPOINT= \
+    # 极验 GeeTest 行为验证4.0
+    GEETEST_CAPTCHA_ID= \
+    GEETEST_CAPTCHA_KEY= \
     # CaptchaLa 智能验证码
     CAPTCHALA_APP_KEY= \
     CAPTCHALA_APP_SECRET= \

@@ -15,22 +15,11 @@ import (
 	"time"
 )
 
-// aliyunCaptchaRegionEndpoint 返回验证码2.0/ESA AI 验证码服务端验签 endpoint。
-// 境内 cn 对应 cn-shanghai，境外 sgp 对应 ap-southeast-1。
-func aliyunCaptchaRegionEndpoint(region string) string {
-	switch strings.ToLower(strings.TrimSpace(region)) {
-	case "sgp", "singapore", "ap-southeast-1":
-		return "captcha.ap-southeast-1.aliyuncs.com"
-	default:
-		return "captcha.cn-shanghai.aliyuncs.com"
-	}
-}
-
 // captchaProvider 解析当前生效的人机验证提供商标识。
-// 显式配置 CAPTCHA_PROVIDER 时优先；否则依据既有 Turnstile 密钥自动推断以保持向后兼容。
+// 显式配置 CAPTCHA_PROVIDER 时优先；否则依据既有凭据自动推断以保持向后兼容。
 func (s *APIServer) captchaProvider() string {
 	switch s.cfg.CaptchaProvider {
-	case captchaProviderTurnstile, captchaProviderAliyun, captchaProviderCaptchaLa, captchaProviderNone:
+	case captchaProviderTurnstile, captchaProviderGeetest, captchaProviderCaptchaLa, captchaProviderNone:
 		return s.cfg.CaptchaProvider
 	case "auto", "":
 		// fallthrough to inference
@@ -41,9 +30,8 @@ func (s *APIServer) captchaProvider() string {
 	if s.cfg.TurnstileSiteKey != "" || s.cfg.TurnstileSecretKey != "" {
 		return captchaProviderTurnstile
 	}
-	if s.cfg.AliyunCaptchaSceneID != "" && s.cfg.AliyunCaptchaPrefix != "" &&
-		s.cfg.AliyunCaptchaAccessKeyID != "" && s.cfg.AliyunCaptchaAccessKeySecret != "" {
-		return captchaProviderAliyun
+	if s.cfg.GeetestCaptchaID != "" && s.cfg.GeetestCaptchaKey != "" {
+		return captchaProviderGeetest
 	}
 	if s.cfg.CaptchaLaAppKey != "" && s.cfg.CaptchaLaAppSecret != "" {
 		return captchaProviderCaptchaLa
@@ -56,9 +44,8 @@ func (s *APIServer) captchaConfigured() bool {
 	switch s.captchaProvider() {
 	case captchaProviderTurnstile:
 		return s.cfg.TurnstileSiteKey != "" && s.cfg.TurnstileSecretKey != ""
-	case captchaProviderAliyun:
-		return s.cfg.AliyunCaptchaPrefix != "" && s.cfg.AliyunCaptchaSceneID != "" &&
-			s.cfg.AliyunCaptchaAccessKeyID != "" && s.cfg.AliyunCaptchaAccessKeySecret != ""
+	case captchaProviderGeetest:
+		return s.cfg.GeetestCaptchaID != "" && s.cfg.GeetestCaptchaKey != ""
 	case captchaProviderCaptchaLa:
 		return s.cfg.CaptchaLaAppKey != "" && s.cfg.CaptchaLaAppSecret != ""
 	default:
@@ -76,12 +63,8 @@ func (s *APIServer) captchaPublicConfig() map[string]interface{} {
 	switch provider {
 	case captchaProviderTurnstile:
 		out["config"] = map[string]string{"siteKey": s.cfg.TurnstileSiteKey}
-	case captchaProviderAliyun:
-		out["config"] = map[string]string{
-			"region":  s.cfg.AliyunCaptchaRegion,
-			"prefix":  s.cfg.AliyunCaptchaPrefix,
-			"sceneId": s.cfg.AliyunCaptchaSceneID,
-		}
+	case captchaProviderGeetest:
+		out["config"] = map[string]string{"captchaId": s.cfg.GeetestCaptchaID}
 	case captchaProviderCaptchaLa:
 		out["config"] = map[string]string{"appKey": s.cfg.CaptchaLaAppKey}
 	case captchaProviderNone:
@@ -109,8 +92,8 @@ func (s *APIServer) verifyCaptcha(token, remoteIP string) error {
 	switch s.captchaProvider() {
 	case captchaProviderTurnstile:
 		return s.verifyTurnstile(token, remoteIP)
-	case captchaProviderAliyun:
-		return s.verifyAliyunESA(token)
+	case captchaProviderGeetest:
+		return s.verifyGeetest(token)
 	case captchaProviderCaptchaLa:
 		return s.verifyCaptchaLa(token, remoteIP)
 	case captchaProviderNone:
@@ -120,111 +103,73 @@ func (s *APIServer) verifyCaptcha(token, remoteIP string) error {
 	}
 }
 
-// aliyunACS3Sign 生成阿里云 V3（ACS3-HMAC-SHA256）Authorization 头。
-// host 需与 signedHeaders 中 host 一致；body 为原始表单体。
-func aliyunACS3Sign(accessKeyID, accessKeySecret, host, action, version, nonce, date, body string) string {
-	hashedPayload := sha256Hex(body)
-
-	// RPC 风格请求体签名：规范化头仅含 host 与 x-acs-* 公共头（不含 content-type）。
-	signedHeaders := []string{"host", "x-acs-action", "x-acs-content-sha256", "x-acs-date", "x-acs-signature-nonce", "x-acs-version"}
-	headerValues := map[string]string{
-		"host":                  host,
-		"x-acs-action":          action,
-		"x-acs-content-sha256":  hashedPayload,
-		"x-acs-date":            date,
-		"x-acs-signature-nonce": nonce,
-		"x-acs-version":         version,
-	}
-
-	var canonHeaders strings.Builder
-	for _, k := range signedHeaders {
-		canonHeaders.WriteString(k + ":" + headerValues[k] + "\n")
-	}
-
-	canonicalRequest := "POST\n/\n\n" + canonHeaders.String() + "\n" + strings.Join(signedHeaders, ";") + "\n" + hashedPayload
-	stringToSign := "ACS3-HMAC-SHA256\n" + sha256Hex(canonicalRequest)
-	signature := hex.EncodeToString(hmacSHA256([]byte(accessKeySecret), stringToSign))
-
-	return fmt.Sprintf("ACS3-HMAC-SHA256 Credential=%s,SignedHeaders=%s,Signature=%s",
-		accessKeyID, strings.Join(signedHeaders, ";"), signature)
+// geetestValidateResult 为极验 v4 二次校验请求的前端参数。
+// 前端将 captchaObj.getValidate() 的结果整体 JSON 化后放入 token。
+type geetestValidateParams struct {
+	LotNumber     string `json:"lot_number"`
+	CaptchaOutput string `json:"captcha_output"`
+	PassToken     string `json:"pass_token"`
+	GenTime       string `json:"gen_time"`
 }
 
-func sha256Hex(data string) string {
-	sum := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(sum[:])
-}
-
-func hmacSHA256(key []byte, data string) []byte {
-	h := hmac.New(sha256.New, key)
-	_, _ = h.Write([]byte(data))
-	return h.Sum(nil)
-}
-
-// verifyAliyunESA 调用阿里云验证码2.0 VerifyIntelligentCaptcha 接口完成服务端验签。
-// token 为前端 initAliyunCaptcha success 回调返回的 captchaVerifyParam（V3 架构）。
-func (s *APIServer) verifyAliyunESA(token string) error {
+// verifyGeetest 调用极验行为验证4.0 服务端二次校验接口。
+// token 应为前端 getValidate() 结果的 JSON 字符串。
+func (s *APIServer) verifyGeetest(token string) error {
 	if !s.captchaConfigured() {
-		return errors.New("aliyun captcha not configured")
+		return errors.New("geetest not configured")
 	}
 	if strings.TrimSpace(token) == "" {
-		return errors.New("aliyun captcha token is required")
+		return errors.New("geetest token is required")
 	}
-	endpoint := strings.TrimSpace(s.cfg.AliyunCaptchaEndpoint)
-	if endpoint == "" {
-		endpoint = aliyunCaptchaRegionEndpoint(s.cfg.AliyunCaptchaRegion)
+	var p geetestValidateParams
+	if err := json.Unmarshal([]byte(token), &p); err != nil {
+		return errors.New("geetest validate param parse failed")
 	}
-	action := "VerifyIntelligentCaptcha"
-	version := "2023-03-05"
-	nonce := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().UnixMicro())
-	date := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	if strings.TrimSpace(p.LotNumber) == "" || strings.TrimSpace(p.CaptchaOutput) == "" ||
+		strings.TrimSpace(p.PassToken) == "" || strings.TrimSpace(p.GenTime) == "" {
+		return errors.New("geetest validate param incomplete")
+	}
+
+	// sign_token = HMAC-SHA256(key=captcha_key, message=lot_number)
+	sign := hmac.New(sha256.New, []byte(s.cfg.GeetestCaptchaKey))
+	_, _ = sign.Write([]byte(p.LotNumber))
+	signToken := hex.EncodeToString(sign.Sum(nil))
 
 	form := url.Values{}
-	form.Set("CaptchaVerifyParam", token)
-	form.Set("SceneId", s.cfg.AliyunCaptchaSceneID)
-	body := form.Encode()
+	form.Set("lot_number", p.LotNumber)
+	form.Set("captcha_output", p.CaptchaOutput)
+	form.Set("pass_token", p.PassToken)
+	form.Set("gen_time", p.GenTime)
+	form.Set("sign_token", signToken)
 
-	authorization := aliyunACS3Sign(s.cfg.AliyunCaptchaAccessKeyID, s.cfg.AliyunCaptchaAccessKeySecret,
-		endpoint, action, version, nonce, date, body)
-
-	req, err := http.NewRequest(http.MethodPost, "https://"+endpoint+"/", bytes.NewBufferString(body))
+	endpoint := "https://gcaptcha4.geetest.com/validate?captcha_id=" + url.QueryEscape(s.cfg.GeetestCaptchaID)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewBufferString(form.Encode()))
 	if err != nil {
-		return fmt.Errorf("aliyun captcha request failed: %w", err)
+		return fmt.Errorf("geetest request failed: %w", err)
 	}
-	req.Host = endpoint
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", authorization)
-	req.Header.Set("x-acs-action", action)
-	req.Header.Set("x-acs-version", version)
-	req.Header.Set("x-acs-date", date)
-	req.Header.Set("x-acs-signature-nonce", nonce)
-	req.Header.Set("x-acs-content-sha256", sha256Hex(body))
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("aliyun captcha verify failed: %w", err)
+		return fmt.Errorf("geetest verify failed: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
 	var result struct {
-		RequestID string `json:"RequestId"`
-		Message   string `json:"Message"`
-		Code      string `json:"Code"`
-		Success   bool   `json:"Success"`
-		Result    struct {
-			VerifyResult bool   `json:"VerifyResult"`
-			VerifyCode   string `json:"VerifyCode"`
-		} `json:"Result"`
+		Status string `json:"status"`
+		Result string `json:"result"`
+		Reason string `json:"reason"`
 	}
-	if err = json.Unmarshal(raw, &result); err != nil {
-		return fmt.Errorf("aliyun captcha parse failed: %w", err)
+	if err = json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("geetest parse failed: %w", err)
 	}
-	if !result.Success {
-		return fmt.Errorf("aliyun captcha request rejected: code=%s msg=%s", result.Code, result.Message)
+	if result.Status == "error" {
+		return fmt.Errorf("geetest request error: %s", result.Reason)
 	}
-	if !result.Result.VerifyResult {
-		return fmt.Errorf("aliyun captcha rejected: verifyCode=%s", result.Result.VerifyCode)
+	if result.Result != "success" {
+		return fmt.Errorf("geetest rejected: %s", result.Reason)
 	}
 	return nil
 }

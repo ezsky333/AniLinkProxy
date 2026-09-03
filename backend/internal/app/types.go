@@ -17,7 +17,7 @@ const (
 
 	// 人机验证提供商标识。
 	captchaProviderTurnstile = "turnstile"
-	captchaProviderAliyun    = "aliyun"
+	captchaProviderGeetest   = "geetest"
 	captchaProviderCaptchaLa = "captchala"
 	captchaProviderNone      = "none"
 )
@@ -44,13 +44,9 @@ type AppConfig struct {
 	// CaptchaProvider 决定前端渲染的人机验证形态与后端验签方式，取值见 captchaProvider* 常量。
 	CaptchaProvider string
 
-	// 阿里云 ESA AI 验证码 / 验证码2.0 相关配置。
-	AliyunCaptchaPrefix         string // 身份标（IDENTITY）
-	AliyunCaptchaRegion         string // cn（中国内地）或 sgp（新加坡）
-	AliyunCaptchaSceneID        string // 场景 ID
-	AliyunCaptchaAccessKeyID    string
-	AliyunCaptchaAccessKeySecret string
-	AliyunCaptchaEndpoint       string // 服务端验签 endpoint，为空则依据 region 自动推导
+	// 极验 GeeTest 行为验证4.0 相关配置。
+	GeetestCaptchaID  string // 前端公开验证 id
+	GeetestCaptchaKey string // 服务端密钥，切勿下发浏览器
 
 	// CaptchaLa 智能验证码相关配置。
 	CaptchaLaAppKey    string

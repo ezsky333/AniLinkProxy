@@ -8,7 +8,7 @@
 - 代理弹弹接口：`comment`、`search`、`bangumi`、`shin`、`match`、`match/batch`
 - 客户端签名验签：`X-AppId` + `X-Timestamp` + `X-Signature`
 - 账号系统：注册、登录、JWT 会话、密钥查看与重置
-- 人机校验：邮箱验证码 + 可插拔验证码（Cloudflare Turnstile / 阿里云 ESA AI 验证码 / CaptchaLa，通过容器环境变量选择生效方）
+- 人机校验：邮箱验证码 + 可插拔验证码（Cloudflare Turnstile / 极验 GeeTest 行为验证4.0 / CaptchaLa，通过容器环境变量选择生效方）
 - 风控能力：限流、并发锁、异常事件记录、自动封禁
 - 运营能力：按 App 统计调用量、失败类型、延迟与风控事件
 - 管理后台：用户封禁/解封、全局统计、运行时配置调整
@@ -39,7 +39,7 @@
 
 | 环境变量 | 取值 | 说明 |
 |---|---|---|
-| `CAPTCHA_PROVIDER` | `turnstile` / `aliyun` / `captchala` / `none` | 生效的验证码厂商；留空或 `auto` 时按已配置凭据自动推断（优先 Turnstile） |
+| `CAPTCHA_PROVIDER` | `turnstile` / `geetest` / `captchala` / `none` | 生效的验证码厂商；留空或 `auto` 时按已配置凭据自动推断（优先 Turnstile） |
 
 > 切换厂商后重启容器即可生效，无需修改业务代码。
 
@@ -51,26 +51,19 @@ TURNSTILE_SITE_KEY=你的SiteKey
 TURNSTILE_SECRET_KEY=你的SecretKey
 ```
 
-### 2. 阿里云 ESA AI 验证码 / 验证码 2.0
+### 2. 极验 GeeTest 行为验证4.0
 
-按 [阿里云官方快速上手](https://www.alibabacloud.com/help/zh/edge-security-acceleration/esa/user-guide/get-started-with-ai-captchas) 创建验证场景后，配置：
+注册极验账号，在控制台创建应用（行为验证4.0）获取 `captcha_id` 与 `captcha_key`（详见[极验文档](https://docs.geetest.com/gt4/)），配置：
 
 ```bash
-CAPTCHA_PROVIDER=aliyun
-# 控制台右上角身份标 IDENTITY
-ALIYUN_CAPTCHA_PREFIX=esa-q2*****cqb
-# 验证场景归属地域：cn（中国内地）/ sgp（新加坡）
-ALIYUN_CAPTCHA_REGION=cn
-# 规则条目里的场景 ID
-ALIYUN_CAPTCHA_SCENE_ID=你的SceneId
-# 阿里云 AccessKey（RAM 子账号需授权 AliyunYundunAFSFullAccess）
-ALIYUN_CAPTCHA_ACCESS_KEY_ID=你的AccessKeyId
-ALIYUN_CAPTCHA_ACCESS_KEY_SECRET=你的AccessKeySecret
-# 可选：自定义服务端验签 endpoint，默认按 region 推导（cn->captcha.cn-shanghai.aliyuncs.com）
-# ALIYUN_CAPTCHA_ENDPOINT=captcha.cn-shanghai.aliyuncs.com
+CAPTCHA_PROVIDER=geetest
+# 前端验证 id（公开）
+GEETEST_CAPTCHA_ID=你的captcha_id
+# 服务端密钥，切勿下发浏览器
+GEETEST_CAPTCHA_KEY=你的captcha_key
 ```
 
-服务端验签走阿里云 `VerifyIntelligentCaptcha` OpenAPI（ACS3 签名，Go 原生实现，无需额外依赖）。
+服务端二次校验走极验官方 `/validate` 接口（`sign_token = HMAC-SHA256(captcha_key, lot_number)`，Go 原生实现，无需额外依赖）。
 
 ### 3. CaptchaLa
 
