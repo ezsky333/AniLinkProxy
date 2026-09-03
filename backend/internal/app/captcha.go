@@ -149,7 +149,10 @@ func (s *APIServer) verifyGeetest(token string) error {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := s.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("geetest verify failed: %w", err)
@@ -157,13 +160,18 @@ func (s *APIServer) verifyGeetest(token string) error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
+	// 检查 HTTP 状态码以便更好地诊断第三方错误
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("geetest verify http status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
 	var result struct {
 		Status string `json:"status"`
 		Result string `json:"result"`
 		Reason string `json:"reason"`
 	}
 	if err = json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("geetest parse failed: %w", err)
+		return fmt.Errorf("geetest parse failed: %w (body=%s)", err, strings.TrimSpace(string(body)))
 	}
 	if result.Status == "error" {
 		return fmt.Errorf("geetest request error: %s", result.Reason)
@@ -198,13 +206,20 @@ func (s *APIServer) verifyCaptchaLa(token, remoteIP string) error {
 	req.Header.Set("X-App-Key", s.cfg.CaptchaLaAppKey)
 	req.Header.Set("X-App-Secret", s.cfg.CaptchaLaAppSecret)
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := s.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("captchala verify failed: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("captchala verify http status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	var result struct {
 		Code int `json:"code"`
@@ -213,10 +228,10 @@ func (s *APIServer) verifyCaptchaLa(token, remoteIP string) error {
 		} `json:"data"`
 	}
 	if err = json.Unmarshal(body, &result); err != nil {
-		return fmt.Errorf("captchala parse failed: %w", err)
+		return fmt.Errorf("captchala parse failed: %w (body=%s)", err, strings.TrimSpace(string(body)))
 	}
 	if result.Code != 0 || !result.Data.Valid {
-		return fmt.Errorf("captchala rejected: code=%d", result.Code)
+		return fmt.Errorf("captchala rejected: code=%d body=%s", result.Code, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
